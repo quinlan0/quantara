@@ -257,3 +257,32 @@ def normalize_stock_codes(codes: List[str]) -> List[str]:
 def format_stock_codes_for_xtdata(codes: List[str]) -> List[str]:
     """批量转换股票代码为xtdata格式（向后兼容）"""
     return StockCodeUtils.format_stock_codes_for_xtdata(codes)
+
+
+def load_data(file_path: str) -> Any:
+    """加载pkl格式的数据文件
+
+    Args:
+        file_path: pkl文件路径
+
+    Returns:
+        从pkl文件加载的数据对象
+
+    Raises:
+        FileNotFoundError: 当文件不存在时
+        Exception: 当加载失败时
+    """
+    import pickle
+    from pathlib import Path
+
+    file_path = Path(file_path)
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"数据文件不存在: {file_path}")
+
+    try:
+        with open(file_path, 'rb') as f:
+            data = pickle.load(f)
+        return data
+    except Exception as e:
+        raise Exception(f"加载数据文件失败 {file_path}: {e}")

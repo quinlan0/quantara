@@ -15,15 +15,20 @@ from datetime import timedelta
 from typing import List, Dict, Union, Optional, Any
 
 # 导入自定义模块
-try:
-    from .logger import get_logger
-    from .utils import StockCodeUtils
-    logger = get_logger()
-except ImportError:
-    # 如果logger不存在，创建简单的logger
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+from .utils import StockCodeUtils
+
+# logger将在需要时延迟初始化
+def _get_logger():
+    """获取logger，延迟初始化"""
+    try:
+        from .logger import get_logger
+        return get_logger()
+    except ImportError:
+        import logging
+        logging.basicConfig(level=logging.INFO)
+        return logging.getLogger(__name__)
+
+logger = _get_logger()
 
 try:
     from .board_graph import BoardGraph
@@ -112,6 +117,17 @@ class DataGetter:
     def name(self) -> str:
         """获取数据获取器名称"""
         return "DataGetter"
+
+    def transform_code(self, code: str) -> str:
+        """转换股票代码格式为6位数字格式
+
+        Args:
+            code: 输入的股票代码
+
+        Returns:
+            6位数字格式的股票代码
+        """
+        return StockCodeUtils.transform_code(code)
 
 
     def _get_cache_file_path(self, cache_type: str, identifier: str, date_str: str = None) -> Path:
