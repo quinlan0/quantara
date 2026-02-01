@@ -16,9 +16,11 @@ from typing import List, Dict, Union, Optional, Any
 
 # 导入自定义模块
 try:
-    from .logger_utils import logger
+    from .logger import get_logger
+    from .utils import StockCodeUtils
+    logger = get_logger()
 except ImportError:
-    # 如果logger_utils不存在，创建简单的logger
+    # 如果logger不存在，创建简单的logger
     import logging
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
@@ -58,6 +60,10 @@ class DataGetter:
         Args:
             xtdata_dir: xtdata数据目录路径
         """
+        # 初始化日志
+        if hasattr(logger, 'init_logger'):
+            logger.init_logger("data_getter")
+
         try:
             from xtquant import xtdata
             # 配置xtdata数据目录
@@ -107,77 +113,6 @@ class DataGetter:
         """获取数据获取器名称"""
         return "DataGetter"
 
-    @staticmethod
-    def transform_code(code: str) -> str:
-        """转换股票代码格式为6位数字格式
-
-        支持的输入格式：
-        - '000001.SH' -> '000001'
-        - 'SH000001' -> '000001'
-        - '000001sh' -> '000001'
-        - 'sh000001' -> '000001'
-        - '000001' -> '000001' (已有6位数字格式)
-
-        Args:
-            code: 股票代码，支持多种输入格式
-
-        Returns:
-            6位数字格式的股票代码，如'000001'
-        """
-        import re
-
-        # 移除所有空白字符
-        code = code.strip()
-
-        # 如果已经是6位数字，直接返回
-        if re.match(r'^\d{6}$', code):
-            return code
-
-        # 匹配格式1: XXXXXX.SH 或 XXXXXX.SZ 或 XXXXXX.BJ
-        match1 = re.match(r'^(\d{6})\.([A-Z]{2})$', code)
-        if match1:
-            return match1.group(1)
-
-        # 匹配格式2: SHXXXXXX 或 SZXXXXXX 或 BJXXXXXX (大写)
-        match2 = re.match(r'^([A-Z]{2})(\d{6})$', code)
-        if match2:
-            return match2.group(2)
-
-        # 匹配格式3: XXXXXXsh 或 XXXXXXsz 或 XXXXXXbj (小写)
-        match3 = re.match(r'^(\d{6})([a-z]{2})$', code)
-        if match3:
-            return match3.group(1)
-
-        # 匹配格式4: shXXXXXX 或 szXXXXXX 或 bjXXXXXX (小写)
-        match4 = re.match(r'^([a-z]{2})(\d{6})$', code)
-        if match4:
-            return match4.group(2)
-
-        # 如果都不匹配，抛出错误
-        raise ValueError(f"无效的股票代码格式: {code}，支持格式: '000001.SH', 'SH000001', '000001sh', 'sh000001'")
-
-    @staticmethod
-    def transform_code_for_xtdata(code: str) -> str:
-        """转换股票代码格式为xtdata所需格式
-
-        Args:
-            code: 6位数字格式的股票代码
-
-        Returns:
-            xtdata所需的格式，如'000001.SZ'
-        """
-        # 首先转换为6位数字格式
-        clean_code = DataGetter.transform_code(code)
-
-        # 根据规则添加交易所后缀
-        if clean_code.startswith(('6', '5')):
-            return f"{clean_code}.SH"
-        elif clean_code.startswith(('0', '3', '1')):
-            return f"{clean_code}.SZ"
-        elif clean_code.startswith(('8', '9', '4')):
-            return f"{clean_code}.BJ"
-        else:
-            raise ValueError(f"无法确定交易所: {clean_code}")
 
     def _get_cache_file_path(self, cache_type: str, identifier: str, date_str: str = None) -> Path:
         """获取缓存文件路径
@@ -240,9 +175,11 @@ class DataGetter:
                            refresh: bool = False) -> pd.DataFrame:
         """获取个股基本信息
 
+        只从缓存读取数据，缓存路径：/tmp/cache_output/quantara/date_info/stock_basic_info.pkl
+
         Args:
-            codes: 股票代码列表，如果为None则获取全部A股数据
-            refresh: 是否强制刷新缓存
+            codes: 股票代码列表，如果为None则返回全部A股数据
+            refresh: 此参数已废弃，仅为向后兼容保留
 
         Returns:
             包含个股基本信息的DataFrame，字段包括：
@@ -255,75 +192,53 @@ class DataGetter:
             - total_shares: 总股本（可选）
             - cir_shares: 流通股本（可选）
         """
-        cache_file = self._get_cache_file_path('stock_basic', 'all_stocks')
+        from pathlib import Path
+        import pickle
 
-        # 检查缓存（除非强制刷新）
-        if not refresh:
-            cached_data = self._load_from_cache(cache_file)
-            if cached_data is not None:
-                logger.info("从缓存加载个股基本信息")
-                # 如果指定了特定代码，则过滤数据
-                if codes is not None:
-                    code_list = [codes] if isinstance(codes, str) else codes
-                    # 转换输入代码为6位数字格式
-                    clean_code_list = [self.transform_code(code) for code in code_list]
-                    mask = cached_data['code'].isin(clean_code_list)
-                    return cached_data[mask].copy()
-                return cached_data
+        # 指定的缓存路径
+        cache_file = Path("/tmp/cache_output/quantara/date_info/stock_basic_info.pkl")
 
-        # 从akshare获取数据
-        logger.info("从akshare获取个股基本信息")
+        # 检查缓存文件是否存在
+        if not cache_file.exists():
+            error_msg = f"股票基本信息缓存文件不存在: {cache_file}\n" \
+                       f"请先运行以下命令更新数据:\n" \
+                       f"  python -m common.stock_basic_info_manager update"
+            raise FileNotFoundError(error_msg)
+
         try:
-            # 获取A股实时行情数据
-            raw_data = ak.stock_zh_a_spot_em()
+            # 从缓存加载数据
+            with open(cache_file, 'rb') as f:
+                cache_data = pickle.load(f)
 
-            # 转换数据格式
-            stock_data = []
-            for _, row in raw_data.iterrows():
-                stock_info = {
-                    'code': str(row['代码']),
-                    'name': str(row['名称']),
-                    'total_mv': float(row['总市值']) if pd.notna(row['总市值']) else None,
-                    'cir_mv': float(row['流通市值']) if pd.notna(row['流通市值']) else None,
-                    'pe': float(row['市盈率-动态']) if pd.notna(row['市盈率-动态']) else None,
-                    'pb': float(row['市净率']) if pd.notna(row['市净率']) else None,
-                    # 总股本和流通股本暂时设为None，后续可通过其他接口获取
-                    'total_shares': None,
-                    'cir_shares': None
-                }
-                stock_data.append(stock_info)
+            stock_data = cache_data.get('stock_data', [])
+            if not stock_data:
+                raise ValueError("缓存文件中没有股票数据")
 
-            # 创建DataFrame
+            # 转换为DataFrame
             df = pd.DataFrame(stock_data)
 
-            # 设置数据类型
-            df['code'] = df['code'].astype(str)
-            df['name'] = df['name'].astype(str)
-
-            # 保存到缓存
-            self._save_to_cache(cache_file, df)
-            logger.info(f"成功获取并缓存 {len(df)} 只股票的基本信息")
+            # 记录加载信息
+            update_date = cache_data.get('update_date', 'unknown')
+            total_count = cache_data.get('total_count', 0)
+            logger.info(f"从缓存加载股票基本信息: {total_count} 只股票，更新日期: {update_date}")
 
             # 如果指定了特定代码，则过滤数据
             if codes is not None:
                 code_list = [codes] if isinstance(codes, str) else codes
                 # 转换输入代码为6位数字格式
-                clean_code_list = [self.transform_code(code) for code in code_list]
+                clean_code_list = StockCodeUtils.normalize_stock_codes(code_list)
                 mask = df['code'].isin(clean_code_list)
-                return df[mask].copy()
+                filtered_df = df[mask].copy()
+                logger.info(f"过滤出 {len(filtered_df)} 只指定股票")
+                return filtered_df
 
             return df
 
         except Exception as e:
-            logger.error(f"获取个股基本信息失败: {e}")
-            # 如果有缓存数据，即使过期也返回
-            if cache_file.exists():
-                try:
-                    with open(cache_file, 'rb') as f:
-                        return pickle.load(f)
-                except:
-                    pass
-            raise
+            error_msg = f"加载股票基本信息缓存失败: {e}\n" \
+                       f"缓存文件: {cache_file}\n" \
+                       f"建议重新更新数据: python -m common.stock_basic_info_manager update"
+            raise Exception(error_msg)
 
     def get_market_data(self, codes: Union[str, List[str]], period: str = '1d',
                        count: int = 1000, refresh: bool = False) -> Dict[str, pd.DataFrame]:
@@ -393,8 +308,21 @@ class DataGetter:
             except Exception as e:
                 logger.warning(f"从xtdata获取股票 {original_code} 数据失败: {e}")
 
-            # 如果获取失败，返回None
-            result[original_code] = None
+            # xtdata获取失败或数据不足，下载数据
+            try:
+                logger.info(f"开始下载股票 {original_code} 的 {period} 周期数据")
+                self._download_and_cache_market_data(clean_code, period, count, cache_file)
+                # 重新从缓存加载
+                if cache_file.exists():
+                    with open(cache_file, 'rb') as f:
+                        result[original_code] = pickle.load(f)
+                    logger.info(f"下载并缓存成功，股票 {original_code} 的 {period} 周期 {count} 根K线数据")
+                else:
+                    logger.error(f"下载后仍无法获取股票 {original_code} 的数据")
+                    result[original_code] = None
+            except Exception as e:
+                logger.error(f"下载股票 {original_code} 数据失败: {e}")
+                result[original_code] = None
 
         return result if len(result) > 1 or isinstance(codes, list) else list(result.values())[0]
 
@@ -428,7 +356,7 @@ class DataGetter:
             end_dt_str = end_date.strftime("%Y%m%d")
 
         # 获取数据
-        trans_code = self.transform_code_for_xtdata(code)
+        trans_code = StockCodeUtils.transform_code_for_xtdata(code)
         data_dict = self.xtdata.get_market_data_ex(
             field_list=[],
             stock_list=[trans_code],
@@ -516,7 +444,7 @@ class DataGetter:
 
         # 转换代码格式并创建映射
         clean_code_list = [self.transform_code(code) for code in code_list]
-        trans_code_list = [self.transform_code_for_xtdata(clean_code) for clean_code in clean_code_list]
+        trans_code_list = [StockCodeUtils.transform_code_for_xtdata(clean_code) for clean_code in clean_code_list]
         code_mapping = dict(zip(trans_code_list, code_list))  # xtdata格式 -> 原始格式
 
         # 调用xtdata.get_full_tick接口获取实时数据
@@ -549,74 +477,85 @@ class DataGetter:
 
         return result if len(result) > 1 or isinstance(codes, list) else list(result.values())[0] if result else None
 
-    def get_stock_sector_info(self, codes: Union[str, List[str]]) -> Union[Dict[str, Dict], Dict]:
-        """获取个股板块信息
+
+    def get_sector_list(self, all_sectors: Optional[List[str]] = None,
+                       start_type: Optional[str] = None,
+                       update_data: bool = False) -> Dict[str, Dict]:
+        """
+        获取板块列表和对应的股票信息
 
         Args:
-            codes: 股票代码列表或单个代码
+            all_sectors: 指定的板块列表，如果为None则获取所有板块
+            start_type: 板块前缀过滤条件（如'TGN'表示概念板块）
+            update_data: 是否更新板块数据
 
         Returns:
-            板块信息字典
-        """
-        if self.board_graph is None:
-            logger.warning("BoardGraph未初始化，无法获取板块信息")
-            return {}
-
-        code_list = [codes] if isinstance(codes, str) else codes
-
-        # 转换代码格式为6位数字，并创建映射
-        clean_code_list = [self.transform_code(code) for code in code_list]
-        code_mapping = dict(zip(clean_code_list, code_list))  # 清洁代码 -> 原始代码
-
-        # 初始化结果字典（使用原始输入格式作为key）
-        sector_info = {}
-        for original_code in code_list:
-            sector_info[original_code] = {
-                'industry': [],
-                'concept': [],
-                'index': []
+            包含板块和股票信息的字典:
+            {
+                'sector_infos': {板块名: [股票代码列表]},
+                'stock_infos': {股票代码: [所属板块列表]}
             }
+        """
+        if self.xtdata is None:
+            raise RuntimeError("xtquant未安装，无法获取板块数据")
 
-        try:
-            logger.info("使用BoardGraph获取板块信息")
+        sector_infos = {}
+        stock_infos = {}
 
-            for clean_code, original_code in zip(clean_code_list, code_list):
-                # 获取行业板块
-                industrys = self.board_graph.get_industrys_by_stock(clean_code)
-                if industrys:
-                    sector_info[original_code]['industry'] = [{
-                        'code': ind_node[0],
-                        'name': ind_node[1],
-                        'sub_type': ind_node[2],
-                        'type': 'industry'
-                    } for ind_node in industrys]
+        def update_infos(sector: str, raw_code: str, sector_infos: Dict, stock_infos: Dict):
+            """更新板块和股票的映射关系"""
+            code = raw_code[:6]  # 提取6位数字代码
 
-                # 获取概念板块
-                concepts = self.board_graph.get_concepts_by_stock(clean_code)
-                if concepts:
-                    sector_info[original_code]['concept'] = [{
-                        'code': con_node[0],
-                        'name': con_node[1],
-                        'sub_type': con_node[2],
-                        'type': 'concept'
-                    } for con_node in concepts]
+            # 更新板块信息
+            if sector not in sector_infos:
+                sector_infos[sector] = []
+            if raw_code not in sector_infos[sector]:
+                sector_infos[sector].append(raw_code)
 
-                # 获取指数板块
-                indexs = self.board_graph.get_indexs_by_stock(clean_code)
-                if indexs:
-                    sector_info[original_code]['index'] = [{
-                        'code': idx_node[0],
-                        'name': idx_node[1],
-                        'sub_type': idx_node[2],
-                        'type': 'index'
-                    } for idx_node in indexs]
+            # 更新股票信息
+            if code not in stock_infos:
+                stock_infos[code] = []
+            if sector not in stock_infos[code]:
+                stock_infos[code].append(sector)
 
-                logger.debug(f"股票 {original_code} 的板块信息: {sector_info[original_code]}")
+        # 更新板块数据
+        if update_data:
+            logger.info("开始下载板块数据...")
+            try:
+                self.xtdata.download_sector_data()
+                logger.info("板块数据下载完成")
+            except Exception as e:
+                logger.warning(f"板块数据下载失败: {e}")
 
-        except Exception as e:
-            logger.error(f"获取板块信息时出错: {e}")
+        # 获取板块列表
+        if all_sectors is None:
+            all_sectors = []
+            try:
+                sector_list = self.xtdata.get_sector_list()
+                if sector_list:
+                    for sector in sector_list:
+                        if start_type is None or sector.startswith(start_type):
+                            all_sectors.append(sector)
+                logger.info(f"获取到 {len(all_sectors)} 个板块")
+            except Exception as e:
+                logger.error(f"获取板块列表失败: {e}")
+                return {'sector_infos': sector_infos, 'stock_infos': stock_infos}
 
-        return sector_info if len(sector_info) > 1 or isinstance(codes, list) else list(sector_info.values())[0]
+        # 处理每个板块
+        for sector in all_sectors:
+            try:
+                stock_list = self.xtdata.get_stock_list_in_sector(sector)
+                if stock_list:
+                    for raw_code in stock_list:
+                        update_infos(sector, raw_code, sector_infos, stock_infos)
+                else:
+                    logger.warning(f"板块 {sector} 没有股票数据")
+            except Exception as e:
+                logger.warning(f"处理板块 {sector} 时出错: {e}")
+                continue
+
+        logger.info(f"成功处理 {len(sector_infos)} 个板块，{len(stock_infos)} 只股票")
+        return {'sector_infos': sector_infos, 'stock_infos': stock_infos}
 
     def get_latest_trading_day_market_data(self, codes: Union[str, List[str]],
                                           period: str = '1m') -> Union[Dict[str, pd.DataFrame], pd.DataFrame]:
@@ -685,7 +624,7 @@ class DataGetter:
 
         # 转换代码格式并创建映射
         clean_code_list = [self.transform_code(code) for code in code_list]
-        trans_code_list = [self.transform_code_for_xtdata(clean_code) for clean_code in clean_code_list]
+        trans_code_list = [StockCodeUtils.transform_code_for_xtdata(clean_code) for clean_code in clean_code_list]
         code_mapping = dict(zip(trans_code_list, code_list))  # xtdata格式 -> 原始格式
 
         # 调用xtdata.get_full_kline接口
@@ -781,21 +720,55 @@ class DataGetter:
 
         logger.info("缓存清理完成")
 
+    def _download_and_cache_market_data(self, code: str, period: str, count: int, cache_file: Path):
+        """下载行情数据并缓存
 
-# 为了向后兼容，提供别名
-StockBasicInfo = DataGetter
+        Args:
+            code: 股票代码（如 '600000'）
+            period: 周期（'1d'/'1m'/'5m'）
+            count: K线数量
+            cache_file: 缓存文件路径
+        """
+        try:
+            from common.qmt_update_data import my_download
+        except ImportError:
+            logger.error("无法导入qmt_update_data模块，无法下载数据")
+            return
 
+        # 计算下载的时间范围
+        end_date = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
 
-if __name__ == "__main__":
-    # 使用示例
-    getter = DataGetter()
+        if period == '1d':
+            # 日线数据，估算需要的天数
+            days_needed = count * 2  # 多取一些确保够数
+            start_date = end_date - timedelta(days=days_needed)
+        else:
+            # 分钟线数据，取最近几天
+            start_date = end_date - timedelta(days=20)
 
-    # 获取个股基本信息
-    print("获取个股基本信息示例:")
-    basic_info = getter.get_stock_basic_info(['000001', '600000'])
-    print(basic_info.head() if basic_info is not None else "无数据")
+        # 转换格式
+        if period.endswith('m'):
+            start_dt_str = start_date.strftime("%Y%m%d%H%M%S")
+            end_dt_str = end_date.strftime("%Y%m%d%H%M%S")
+        else:
+            start_dt_str = start_date.strftime("%Y%m%d")
+            end_dt_str = end_date.strftime("%Y%m%d")
 
-    # 获取行情数据
-    print("\n获取行情数据示例:")
-    market_data = getter.get_market_data('000001', period='1d', count=10)
-    print(market_data.head() if market_data is not None else "无数据")
+        # 下载数据
+        xtdata_code = StockCodeUtils.format_stock_codes_for_xtdata([code])[0]
+        my_download(
+            stock_list=[xtdata_code],
+            period=period,
+            start_date=start_dt_str,
+            end_date=end_dt_str,
+            logger=logger
+        )
+
+        # 下载完成后重新获取数据
+        data = self._fetch_market_data_from_xtdata(code, period, count)
+        if data is not None:
+            # 保存到缓存
+            with open(cache_file, 'wb') as f:
+                pickle.dump(data, f)
+            logger.info(f"下载并缓存成功，股票 {code} 的 {period} 周期数据")
+

@@ -4,13 +4,16 @@
 """
 
 import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from pathlib import Path
+# 添加项目根目录到Python路径，以便导入common模块
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 def test_import():
     """测试导入"""
     try:
-        from data_getter import DataGetter, DataFields
+        from common.data_getter import DataGetter
+        from common.data_getter import DataFields
         print("✅ 模块导入成功")
         return True
     except Exception as e:
@@ -20,7 +23,7 @@ def test_import():
 def test_data_fields():
     """测试数据字段定义"""
     try:
-        from data_getter import DataFields
+        from common.data_getter import DataFields
 
         # 检查个股基本信息字段
         assert 'code' in DataFields.STOCK_BASIC_REQUIRED
@@ -51,19 +54,22 @@ def test_data_fields():
 def test_code_transform():
     """测试股票代码转换"""
     try:
-        from data_getter import DataGetter
+        from common.utils import StockCodeUtils
 
         # 测试transform_code方法（转换为6位数字格式）
-        assert DataGetter.transform_code('000001.SH') == '000001'
-        assert DataGetter.transform_code('SH000001') == '000001'
-        assert DataGetter.transform_code('000001sh') == '000001'
-        assert DataGetter.transform_code('sh000001') == '000001'
-        assert DataGetter.transform_code('000001') == '000001'
+        assert StockCodeUtils.transform_code('000001.SH') == '000001'
+        assert StockCodeUtils.transform_code('SH000001') == '000001'
+        assert StockCodeUtils.transform_code('000001sh') == '000001'
+        assert StockCodeUtils.transform_code('sh000001') == '000001'
+        assert StockCodeUtils.transform_code('000001') == '000001'
+        # 新增格式支持测试
+        assert StockCodeUtils.transform_code('000001SH') == '000001'
+        assert StockCodeUtils.transform_code('600000SZ') == '600000'
 
         # 测试transform_code_for_xtdata方法（转换为xtdata格式）
-        assert DataGetter.transform_code_for_xtdata('000001') == '000001.SZ'
-        assert DataGetter.transform_code_for_xtdata('600000') == '600000.SH'
-        assert DataGetter.transform_code_for_xtdata('000001.SZ') == '000001.SZ'
+        assert StockCodeUtils.transform_code_for_xtdata('000001') == '000001.SZ'
+        assert StockCodeUtils.transform_code_for_xtdata('600000') == '600000.SH'
+        assert StockCodeUtils.transform_code_for_xtdata('000001.SZ') == '000001.SZ'
 
         print("✅ 股票代码转换功能正常")
         return True
@@ -74,7 +80,7 @@ def test_code_transform():
 def test_cache_path():
     """测试缓存路径生成"""
     try:
-        from data_getter import DataGetter
+        from common.data_getter import DataGetter
         from pathlib import Path
 
         getter = DataGetter()
@@ -95,6 +101,37 @@ def test_cache_path():
         print(f"❌ 缓存路径测试失败: {e}")
         return False
 
+def test_sector_list():
+    """测试板块列表获取"""
+    try:
+        from common.data_getter import DataGetter
+
+        getter = DataGetter()
+
+        # 测试获取板块列表（可能需要网络访问，这里只测试接口）
+        try:
+            # 注意：这个测试可能因为网络原因失败，只测试接口可用性
+            sector_data = getter.get_sector_list()
+
+            # 检查返回结构
+            assert isinstance(sector_data, dict)
+            assert 'sector_infos' in sector_data
+            assert 'stock_infos' in sector_data
+
+            print("✅ 板块列表接口测试通过")
+            return True
+
+        except RuntimeError as e:
+            if "xtquant未安装" in str(e):
+                print("⚠️ xtquant未安装，跳过板块列表测试")
+                return True
+            else:
+                raise
+
+    except Exception as e:
+        print(f"❌ 板块列表测试失败: {e}")
+        return False
+
 def main():
     """主测试函数"""
     print("开始测试重构后的data_getter.py模块...")
@@ -104,7 +141,8 @@ def main():
         test_import,
         test_data_fields,
         test_code_transform,
-        test_cache_path
+        test_cache_path,
+        test_sector_list
     ]
 
     passed = 0
