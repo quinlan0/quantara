@@ -160,7 +160,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             return True
 
         # 检查API Key头
-        api_key_header = headers.get('X-API-Key') or headers.get('Authorization')
+        api_key_header = headers.get('X-API-Key') or headers.get('X-Api-Key') or headers.get('Authorization')
         if api_key_header:
             # 如果是Bearer token格式
             if api_key_header.startswith('Bearer '):
@@ -375,25 +375,6 @@ class XtDataMCPServer:
         self.api_key = api_key
         self.server = None
         self.server_thread = None
-
-    def _authenticate_request(self, headers: Dict[str, str]) -> bool:
-        """验证请求认证"""
-        if not self.api_key:
-            # 如果没有设置API密钥，则允许所有请求
-            return True
-
-        # 检查API Key头
-        api_key_header = headers.get('X-API-Key') or headers.get('Authorization')
-        if api_key_header:
-            # 如果是Bearer token格式
-            if api_key_header.startswith('Bearer '):
-                provided_key = api_key_header[7:]  # 去掉"Bearer "前缀
-            else:
-                provided_key = api_key_header
-
-            return provided_key == self.api_key
-
-        return False
 
     def start(self):
         """启动服务器"""
