@@ -37,8 +37,29 @@ class XtDataMCPClient:
         # 如果提供了API密钥，添加到请求头
         if self.api_key:
             headers['X-API-Key'] = self.api_key
+            print(f"已设置API密钥认证")
 
         self.session.headers.update(headers)
+        print(f"MCP客户端初始化完成")
+        print(f"服务器URL: {self.server_url}")
+        print(f"认证状态: {'已启用' if self.api_key else '未启用'}")
+
+    def check_server_status(self) -> bool:
+        """检查服务器状态"""
+        try:
+            # 尝试连接到服务器根路径
+            response = self.session.get(f"{self.server_url}/", timeout=5)
+            print(f"服务器响应: {response.status_code}")
+            return response.status_code < 500  # 任何非服务器错误都算连接成功
+        except requests.exceptions.ConnectionError:
+            print(f"连接失败: 无法连接到 {self.server_url}")
+            return False
+        except requests.exceptions.Timeout:
+            print(f"连接超时: {self.server_url} 响应超时")
+            return False
+        except Exception as e:
+            print(f"检查服务器状态时出错: {e}")
+            return False
 
     def get_sector_list(self) -> List[str]:
         """获取板块列表"""
@@ -86,32 +107,69 @@ class XtDataMCPClient:
 
     def list_tools(self) -> Dict[str, Any]:
         """列出可用工具"""
+        print(f"连接到服务器: {self.server_url}")
+
         # 对于/tools/list，不发送请求体和Content-Type头
         headers = self.session.headers.copy()
         headers.pop('Content-Type', None)  # 移除Content-Type头
 
-        response = self.session.post(f"{self.server_url}/tools/list", headers=headers)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"请求失败: {response.status_code}")
-            print(f"响应内容: {response.text}")
+        try:
+            response = self.session.post(f"{self.server_url}/tools/list", headers=headers, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 401:
+                print(f"认证失败: {response.status_code} - 请检查API密钥")
+                print(f"响应内容: {response.text}")
+                return {}
+            else:
+                print(f"请求失败: {response.status_code}")
+                print(f"响应内容: {response.text}")
+                return {}
+        except requests.exceptions.ConnectionError as e:
+            print(f"连接错误: 无法连接到服务器 {self.server_url}")
+            print(f"请确保服务器正在运行，或检查服务器URL是否正确")
+            print(f"错误详情: {e}")
+            return {}
+        except requests.exceptions.Timeout as e:
+            print(f"连接超时: 服务器 {self.server_url} 响应超时")
+            print(f"请检查服务器是否正在运行，或网络连接是否正常")
+            print(f"错误详情: {e}")
+            return {}
+        except Exception as e:
+            print(f"请求异常: {e}")
             return {}
 
     def _parse_response(self, response) -> Any:
         """解析HTTP响应"""
-        if response.status_code == 200:
-            data = response.json()
-            if "error" in data:
-                print(f"服务器错误: {data['error']}")
+        try:
+            if response.status_code == 200:
+                data = response.json()
+                if "error" in data:
+                    print(f"服务器错误: {data['error']}")
+                    return None
+                elif "result" in data:
+                    return data["result"]
+                else:
+                    return data
+            elif response.status_code == 401:
+                print(f"认证失败: {response.status_code} - 请检查API密钥设置")
+                try:
+                    error_data = response.json()
+                    if "error" in error_data:
+                        print(f"错误详情: {error_data['error']}")
+                except:
+                    print(f"响应内容: {response.text}")
                 return None
-            elif "result" in data:
-                return data["result"]
             else:
-                return data
-        else:
-            print(f"HTTP请求失败: {response.status_code}")
-            print(f"响应内容: {response.text}")
+                print(f"HTTP请求失败: {response.status_code}")
+                print(f"响应内容: {response.text}")
+                return None
+        except requests.exceptions.JSONDecodeError:
+            print(f"响应格式错误: 无法解析JSON响应")
+            print(f"原始响应: {response.text}")
+            return None
+        except Exception as e:
+            print(f"解析响应时出错: {e}")
             return None
 
 
@@ -124,6 +182,15 @@ def demo():
 
     # 创建客户端
     client = XtDataMCPClient("http://localhost:9999", api_key)
+
+    # 检查服务器连接
+    print("检查服务器连接...")
+    if not client.check_server_status():
+        print("❌ 无法连接到服务器，请检查：")
+        print("   1. 服务器是否已启动: python mcp/run_server.py")
+        print("   2. 服务器URL是否正确")
+        print("   3. 防火墙和网络设置")
+        return
 
     try:
         # 先列出可用工具
@@ -179,6 +246,12 @@ def main():
     api_key = getattr(args, 'api_key', None)
     if not api_key:
         api_key = os.environ.get('XTDATA_MCP_API_KEY')
+
+    print("=== xtdata MCP客户端配置 ===")
+    print(f"服务器URL: {args.server_url}")
+    print(f"API密钥来源: {'命令行参数' if getattr(args, 'api_key', None) else '环境变量' if api_key else '未设置'}")
+    print(f"认证状态: {'已启用' if api_key else '未启用'}")
+    print("-" * 40)
 
     if args.demo:
         # 运行演示
