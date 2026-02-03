@@ -148,9 +148,29 @@ class XtDataService:
 class MCPRequestHandler(BaseHTTPRequestHandler):
     """MCP HTTP请求处理器"""
 
-    def __init__(self, *args, xtdata_service=None, **kwargs):
+    def __init__(self, *args, xtdata_service=None, api_key=None, **kwargs):
         self.xtdata_service = xtdata_service
+        self.api_key = api_key
         super().__init__(*args, **kwargs)
+
+    def _authenticate_request(self, headers: Dict[str, str]) -> bool:
+        """验证请求认证"""
+        if not self.api_key:
+            # 如果没有设置API密钥，则允许所有请求
+            return True
+
+        # 检查API Key头
+        api_key_header = headers.get('X-API-Key') or headers.get('Authorization')
+        if api_key_header:
+            # 如果是Bearer token格式
+            if api_key_header.startswith('Bearer '):
+                provided_key = api_key_header[7:]  # 去掉"Bearer "前缀
+            else:
+                provided_key = api_key_header
+
+            return provided_key == self.api_key
+
+        return False
 
     def do_POST(self):
         """处理POST请求"""
@@ -378,7 +398,7 @@ class XtDataMCPServer:
     def start(self):
         """启动服务器"""
         def create_handler(*args, **kwargs):
-            return MCPRequestHandler(*args, xtdata_service=self.xtdata_service, **kwargs)
+            return MCPRequestHandler(*args, xtdata_service=self.xtdata_service, api_key=self.api_key, **kwargs)
 
         self.server = HTTPServer((self.host, self.port), create_handler)
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
