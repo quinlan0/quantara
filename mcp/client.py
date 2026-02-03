@@ -11,7 +11,7 @@ import sys
 import os
 import requests
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 class XtDataMCPClient:
