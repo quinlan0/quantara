@@ -164,25 +164,23 @@ python mcp/client.py
 ## Python客户端使用
 
 ```python
+import os
 from mcp.client import XtDataMCPClient
 
-# 创建客户端（无认证）
-client = XtDataMCPClient("http://localhost:9999")
-
-# 创建客户端（带认证）
+# 方法1：直接指定API密钥
 client = XtDataMCPClient("http://localhost:9999", api_key="your-secret-api-key")
 
-# 获取板块列表
+# 方法2：使用环境变量（推荐）
+os.environ['XTDATA_MCP_API_KEY'] = 'your-secret-api-key'
+client = XtDataMCPClient("http://localhost:9999")  # 会自动从环境变量读取
+
+# 方法3：无认证（开发环境）
+client = XtDataMCPClient("http://localhost:9999")  # 当服务器未启用认证时
+
+# 使用客户端
 sectors = client.get_sector_list()
-print(f"板块列表: {sectors}")
-
-# 获取tick数据
 tick_data = client.get_full_tick(["000001.SZ", "600000.SH"])
-print(f"Tick数据: {tick_data}")
-
-# 获取市场数据
 market_data = client.get_market_data_ex(["000001.SZ"], period="1d", count=5)
-print(f"市场数据: {market_data}")
 ```
 
 ## 架构说明
@@ -251,21 +249,61 @@ mcp/
    Authorization: Bearer your-secret-api-key
    ```
 
-### 启用认证
+### API密钥设置方法
+
+#### 1. 命令行参数（推荐用于脚本和CI/CD）
 
 ```bash
-# 启动时指定API密钥
+# 服务器启动
 python mcp/run_server.py --api-key "my-secure-api-key-12345"
 
-# 客户端使用认证
+# 客户端连接
 python mcp/client.py --api-key "my-secure-api-key-12345" --demo
+```
+
+#### 2. 环境变量（推荐用于生产环境）
+
+```bash
+# 设置环境变量
+export XTDATA_MCP_API_KEY="my-secure-api-key-12345"
+
+# 或者在Windows PowerShell中
+$env:XTDATA_MCP_API_KEY="my-secure-api-key-12345"
+
+# 然后启动服务器和客户端（无需指定--api-key）
+python mcp/run_server.py
+python mcp/client.py --demo
+```
+
+#### 3. 自动生成密钥
+
+```bash
+# 生成安全的随机密钥
+python mcp/generate_key.py
+
+# 生成指定类型的密钥
+python mcp/generate_key.py --type hex --length 64
+
+# 生成并显示环境变量设置命令
+python mcp/generate_key.py --env
+```
+
+#### 4. 配置文件（适用于复杂配置）
+
+```python
+# 复制 config_example.py 为 config.py 并修改
+from config import get_api_key
+
+api_key = get_api_key()
+# 在代码中使用
 ```
 
 ### 认证检查
 
-- 如果服务器启动时未指定 `--api-key`，则不启用认证
-- 认证失败返回HTTP 401状态码
-- 支持的请求头：`X-API-Key` 或 `Authorization`
+- 如果服务器启动时未指定 `--api-key` 且环境变量未设置，则不启用认证
+- 认证失败返回HTTP 401状态码和错误信息
+- 支持的请求头：`X-API-Key` 或 `Authorization: Bearer <key>`
+- 优先级：命令行参数 > 环境变量
 
 ## 注意事项
 

@@ -8,6 +8,7 @@ MCP客户端示例 - xtdata接口调用
 
 import json
 import sys
+import os
 import requests
 from pathlib import Path
 from typing import Any, Dict, List
@@ -118,8 +119,11 @@ def demo():
     """演示函数"""
     print("=== xtdata MCP客户端演示 ===\n")
 
+    # 获取API密钥（环境变量）
+    api_key = os.environ.get('XTDATA_MCP_API_KEY')
+
     # 创建客户端
-    client = XtDataMCPClient("http://localhost:9999")
+    client = XtDataMCPClient("http://localhost:9999", api_key)
 
     try:
         # 先列出可用工具
@@ -171,6 +175,11 @@ def main():
 
     args = parser.parse_args()
 
+    # 获取API密钥（优先级：命令行参数 > 环境变量）
+    api_key = getattr(args, 'api_key', None)
+    if not api_key:
+        api_key = os.environ.get('XTDATA_MCP_API_KEY')
+
     if args.demo:
         # 运行演示
         demo()
@@ -179,7 +188,7 @@ def main():
         print("xtdata MCP客户端")
         print("输入 'help' 查看可用命令，输入 'quit' 退出")
 
-        client = XtDataMCPClient(args.server_url, getattr(args, 'api_key', None))
+        client = XtDataMCPClient(args.server_url, api_key)
 
         while True:
             try:

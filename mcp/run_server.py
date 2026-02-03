@@ -8,6 +8,7 @@ python run_server.py --xtdata-dir "G:\国金证券QMT交易端\datadir"
 """
 
 import sys
+import os
 from pathlib import Path
 
 def main():
@@ -42,8 +43,13 @@ def main():
     print("-" * 50)
 
     try:
+        # 获取API密钥（优先级：命令行参数 > 环境变量）
+        api_key = getattr(args, 'api_key', None)
+        if not api_key:
+            api_key = os.environ.get('XTDATA_MCP_API_KEY')
+
         # 创建并启动服务器
-        server = XtDataMCPServer(args.host, args.port, args.xtdata_dir, getattr(args, 'api_key', None))
+        server = XtDataMCPServer(args.host, args.port, args.xtdata_dir, api_key)
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n服务器已停止")
