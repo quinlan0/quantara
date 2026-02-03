@@ -45,7 +45,8 @@ def main():
     elif args.type == 'url-safe':
         key = generate_url_safe_key(args.length // 4 * 3)  # base64编码
 
-    print("生成的API密钥:"    print(f"  {key}")
+    print("生成的API密钥:")
+    print(f"  {key}")
     print()
 
     if args.env:
