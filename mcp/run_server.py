@@ -16,14 +16,14 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description='启动xtdata MCP服务器')
-    parser.add_argument('--host', type=str, default='localhost',
+    parser.add_argument('--host', type=str, default='0.0.0.0',
                        help='服务器主机地址')
-    parser.add_argument('--port', type=int, default=9999,
+    parser.add_argument('--port', type=int, default=9696,
                        help='服务器端口')
     parser.add_argument('--xtdata-dir', type=str,
                        default=r'G:\国金证券QMT交易端\datadir',
                        help='xtdata数据目录路径')
-    parser.add_argument('--api-key', type=str,
+    parser.add_argument('--api-key', type=str, default='gfGOo0@Q8thvwta0Z*j^mGQqWgIM4Yrn',
                        help='API密钥，用于认证。如果不提供则不启用认证')
 
     args = parser.parse_args()
@@ -39,14 +39,13 @@ def main():
     print("启动xtdata MCP服务器...")
     print(f"主机地址: {args.host}")
     print(f"端口: {args.port}")
+    print(f"api_key:: {args.api_key}")
     print(f"数据目录: {args.xtdata_dir}")
     print("-" * 50)
 
     try:
         # 获取API密钥（优先级：命令行参数 > 环境变量）
         api_key = getattr(args, 'api_key', None)
-        if not api_key:
-            api_key = os.environ.get('XTDATA_MCP_API_KEY')
 
         # 创建并启动服务器
         server = XtDataMCPServer(args.host, args.port, args.xtdata_dir, api_key)

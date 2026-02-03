@@ -233,9 +233,9 @@ def main():
 
     parser = argparse.ArgumentParser(description='xtdata MCP客户端')
     parser.add_argument('--server-url', type=str,
-                       default='http://localhost:9999',
+                       default='http://localhost:9696',
                        help='MCP服务器URL')
-    parser.add_argument('--api-key', type=str,
+    parser.add_argument('--api-key', type=str, default="gfGOo0@Q8thvwta0Z*j^mGQqWgIM4Yrn",
                        help='API密钥，用于认证')
     parser.add_argument('--demo', action='store_true',
                        help='运行演示模式')
@@ -308,7 +308,6 @@ def main():
                 break
             except Exception as e:
                 print(f"命令执行出错: {e}")
-
 
 if __name__ == "__main__":
     main()
