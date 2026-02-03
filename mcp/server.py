@@ -23,11 +23,8 @@ if str(project_root) not in sys.path:
 
 try:
     from xtquant import xtdata
-    XTDATA_AVAILABLE = True
 except ImportError:
-    print("警告: xtquant未安装，将使用模拟模式")
-    XTDATA_AVAILABLE = False
-    xtdata = None
+    raise ImportError("xtquant未安装，无法初始化MCP服务器")
 
 
 class XtDataService:
@@ -36,18 +33,13 @@ class XtDataService:
     def __init__(self, xtdata_dir: Optional[str] = None):
         """初始化服务"""
         # 配置xtdata
-        if XTDATA_AVAILABLE and xtdata_dir:
+        if xtdata_dir:
             xtdata.data_dir = xtdata_dir
             xtdata.enable_hello = False
             print(f"已配置xtdata数据目录: {xtdata_dir}")
-        elif not XTDATA_AVAILABLE:
-            print("xtdata不可用，使用模拟模式")
 
     def get_sector_list(self) -> List[str]:
         """获取板块列表"""
-        if not XTDATA_AVAILABLE:
-            return ["模拟板块1", "模拟板块2", "模拟板块3"]
-
         try:
             return xtdata.get_sector_list() or []
         except Exception as e:
@@ -56,9 +48,6 @@ class XtDataService:
 
     def get_stock_list_in_sector(self, sector_name: str, real_timetag: Union[str, int] = -1) -> List[str]:
         """获取板块成份股"""
-        if not XTDATA_AVAILABLE:
-            return [f"{sector_name}_股票1", f"{sector_name}_股票2", f"{sector_name}_股票3"]
-
         try:
             return xtdata.get_stock_list_in_sector(sector_name, real_timetag) or []
         except Exception as e:
@@ -67,22 +56,6 @@ class XtDataService:
 
     def get_full_tick(self, code_list: List[str]) -> Dict[str, Any]:
         """获取盘口tick数据"""
-        if not XTDATA_AVAILABLE:
-            # 返回模拟数据
-            result = {}
-            for code in code_list:
-                result[code] = {
-                    "datetime": "2024-01-01 09:30:00",
-                    "open": 10.0,
-                    "high": 11.0,
-                    "low": 9.5,
-                    "close": 10.5,
-                    "volume": 1000,
-                    "amount": 10500,
-                    "pre_close": 10.0
-                }
-            return result
-
         try:
             return xtdata.get_full_tick(code_list) or {}
         except Exception as e:
@@ -93,28 +66,6 @@ class XtDataService:
                           start_time: str, end_time: str, count: int,
                           dividend_type: str, fill_data: bool) -> Dict[str, Any]:
         """获取市场数据"""
-        if not XTDATA_AVAILABLE:
-            # 返回模拟数据
-            import pandas as pd
-            result = {}
-            for code in stock_list:
-                # 创建模拟的DataFrame数据
-                data = {
-                    'datetime': pd.date_range('2024-01-01', periods=min(count, 5) if count > 0 else 5, freq='D'),
-                    'open': [10.0, 10.2, 10.1, 10.3, 10.2][:min(count, 5) if count > 0 else 5],
-                    'high': [10.5, 10.4, 10.3, 10.5, 10.4][:min(count, 5) if count > 0 else 5],
-                    'low': [9.8, 10.0, 9.9, 10.1, 10.0][:min(count, 5) if count > 0 else 5],
-                    'close': [10.2, 10.1, 10.3, 10.2, 10.3][:min(count, 5) if count > 0 else 5],
-                    'volume': [1000, 1200, 800, 1500, 1100][:min(count, 5) if count > 0 else 5],
-                    'amount': [10200, 12120, 8240, 15300, 11330][:min(count, 5) if count > 0 else 5],
-                    'pre_close': [10.0, 10.2, 10.1, 10.3, 10.2][:min(count, 5) if count > 0 else 5]
-                }
-                df = pd.DataFrame(data)
-                df['datetime'] = pd.to_datetime(df['datetime'])
-                df.set_index('datetime', inplace=True)
-                result[code] = df.to_dict('records')
-            return result
-
         try:
             data_dict = xtdata.get_market_data_ex(
                 field_list=field_list,
@@ -134,6 +85,7 @@ class XtDataService:
             result = {}
             for code, df in data_dict.items():
                 if df is not None and not df.empty:
+                    df['datetime'] = df.index
                     result[code] = df.to_dict('records')
                 else:
                     result[code] = []

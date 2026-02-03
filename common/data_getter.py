@@ -1,6 +1,15 @@
 """
 数据获取模块 - 重构版本
 整合个股基本信息和行情数据获取功能
+
+支持两种数据源：
+1. xtdata（优先）：直接调用xtquant库
+2. MCP客户端：通过网络调用远程MCP服务器
+
+数据源自动选择：
+- 如果xtdata可用，使用xtdata
+- 如果xtdata不可用但MCP客户端可用，使用MCP客户端
+- 如果两者都不可用，抛出异常
 """
 
 import os
@@ -29,6 +38,90 @@ def _get_logger():
         return logging.getLogger(__name__)
 
 logger = _get_logger()
+
+class XtDataProxy:
+    """xtdata代理类
+
+    当本地xtdata不可用时，自动调用MCP客户端
+    """
+
+    def __init__(self):
+        from mcp.client import XtDataMCPClient
+        mcp_client = XtDataMCPClient(server_url="http://data.cpolar.top", api_key="gfGOo0@Q8thvwta0Z*j^mGQqWgIM4Yrn")
+        self.mcp_client = mcp_client
+
+    def get_sector_list(self):
+        """获取板块列表和对应的股票信息"""
+        try:
+            sectors = self.mcp_client.get_sector_list()
+            sector_infos = {}
+            stock_infos = {}
+
+            # 为每个板块获取股票列表
+            if sectors:
+                for sector in sectors[:5]:  # 限制数量避免过多请求
+                    try:
+                        stocks = self.mcp_client.get_stock_list_in_sector(sector)
+                        if stocks:
+                            sector_infos[sector] = stocks
+                            # 更新股票信息
+                            for stock in stocks:
+                                if stock not in stock_infos:
+                                    stock_infos[stock] = []
+                                stock_infos[stock].append(sector)
+                    except Exception as e:
+                        logger.warning(f"获取板块 {sector} 股票列表失败: {e}")
+                        continue
+
+            return {'sector_infos': sector_infos, 'stock_infos': stock_infos}
+
+        except Exception as e:
+            logger.error(f"MCP客户端获取板块数据失败: {e}")
+            return {'sector_infos': {}, 'stock_infos': {}}
+
+    def get_stock_list_in_sector(self, sector_name, real_timetag=-1):
+        """获取板块成份股"""
+        return self.mcp_client.get_stock_list_in_sector(sector_name, real_timetag)
+
+    def get_full_tick(self, codes):
+        """获取盘口tick数据"""
+        try:
+            code_list = [codes] if isinstance(codes, str) else codes
+            result = self.mcp_client.get_full_tick(code_list)
+
+            if not result:
+                logger.warning("MCP客户端未返回实时数据")
+                return None
+
+            return result if len(result) > 1 or isinstance(codes, list) else list(result.values())[0] if result else None
+
+        except Exception as e:
+            logger.error(f"MCP客户端获取实时数据失败: {e}")
+            return None
+
+    def get_market_data_ex(self, field_list=[], stock_list=[], period='1d', start_time='', end_time='', count=-1, dividend_type='none', fill_data=True):
+        """获取市场数据"""
+        try:
+            mcp_data = self.mcp_client.get_market_data_ex(stock_list, period, count)
+
+            if not mcp_data:
+                logger.warning("MCP客户端未返回市场数据")
+                return {}
+
+            result = {}
+            for code, records in mcp_data.items():
+                if records:
+                    df = pd.DataFrame(records)
+                    if 'datetime' in df.columns:
+                        df['datetime'] = pd.to_datetime(df['datetime'])
+                        df.set_index('datetime', inplace=True)
+                    result[code] = df
+
+            return result
+
+        except Exception as e:
+            logger.error(f"MCP客户端获取市场数据失败: {e}")
+            return {}
 
 try:
     from .board_graph import BoardGraph
@@ -69,6 +162,10 @@ class DataGetter:
         if hasattr(logger, 'init_logger'):
             logger.init_logger("data_getter")
 
+        # 初始化数据源
+        self.xtdata = None
+        self.data_source = "none"
+
         try:
             from xtquant import xtdata
             # 配置xtdata数据目录
@@ -76,9 +173,17 @@ class DataGetter:
             # 禁用问候语
             xtdata.enable_hello = False
             self.xtdata = xtdata
+            self.data_source = "xtdata"
+            logger.info("使用xtdata作为数据源")
         except ImportError:
-            logger.warning("xtquant未安装，将使用模拟模式")
-            self.xtdata = None
+            logger.warning("xtquant未安装，尝试使用MCP客户端作为代理")
+            try:
+                # 创建代理对象，保持接口一致性
+                self.xtdata = XtDataProxy()
+                self.data_source = "mcp"
+                logger.info("使用MCP客户端代理作为数据源")
+            except Exception as e:
+                raise RuntimeError(f"无法初始化数据源: xtquant和MCP客户端都不可用。错误: {e}")
 
         # 初始化相关对象
         self.board_graph = self._init_board_graph()
@@ -283,8 +388,6 @@ class DataGetter:
             raise ValueError(f"不支持的周期: {period}，只支持 '1d', '1m', '5m'")
         if count <= 0:
             raise ValueError(f"count必须大于0，当前值: {count}")
-        if self.xtdata is None:
-            raise RuntimeError("xtquant未安装，无法获取行情数据")
 
         code_list = [codes] if isinstance(codes, str) else codes
 
@@ -373,13 +476,20 @@ class DataGetter:
 
         # 获取数据
         trans_code = StockCodeUtils.transform_code_for_xtdata(code)
-        data_dict = self.xtdata.get_market_data_ex(
-            field_list=[],
-            stock_list=[trans_code],
-            period=period,
-            start_time=start_dt_str,
-            end_time=end_dt_str
-        )
+        if self.data_source == "mcp":
+            data_dict = self.xtdata.get_market_data_ex(
+                stock_list=[trans_code],
+                period=period,
+                count=count
+            )
+        else:
+            data_dict = self.xtdata.get_market_data_ex(
+                field_list=[],
+                stock_list=[trans_code],
+                period=period,
+                start_time=start_dt_str,
+                end_time=end_dt_str
+            )
 
         # 处理数据
         if trans_code in data_dict and data_dict[trans_code] is not None:
@@ -436,8 +546,6 @@ class DataGetter:
         Returns:
             实时行情数据字典或DataFrame
         """
-        if self.xtdata is None:
-            raise RuntimeError("xtquant未安装，无法获取实时数据")
 
         code_list = [codes] if isinstance(codes, str) else codes
 
@@ -447,15 +555,16 @@ class DataGetter:
         code_mapping = dict(zip(trans_code_list, code_list))  # xtdata格式 -> 原始格式
 
         # 调用xtdata.get_full_tick接口获取实时数据
-        real_data = self.xtdata.get_full_tick(trans_code_list)
+        if self.data_source == "mcp":
+            real_data = self.xtdata.get_full_tick(trans_code_list)
+        else:
+            real_data = self.xtdata.get_full_tick(trans_code_list)
 
         # 转换数据格式
         result = {}
         if real_data is not None:
             for trans_code, tick_data in real_data.items():
                 original_code = code_mapping[trans_code]
-                print(tick_data)
-
                 # 转换tick数据为标准格式
                 standardized_data = {
                     'open': tick_data.get('open', tick_data.get('openPrice', 0)),
@@ -495,8 +604,8 @@ class DataGetter:
                 'stock_infos': {股票代码: [所属板块列表]}
             }
         """
-        if self.xtdata is None:
-            raise RuntimeError("xtquant未安装，无法获取板块数据")
+        if self.data_source == "mcp":
+            return self.xtdata.get_sector_list()
 
         sector_infos = {}
         stock_infos = {}

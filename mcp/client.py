@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 class XtDataMCPClient:
     """xtdata MCP客户端"""
 
-    def __init__(self, server_url: str = "http://localhost:9999", api_key: Optional[str] = None):
+    def __init__(self, server_url: str = "http://localhost:9696", api_key: Optional[str] = None):
         """初始化客户端
 
         Args:

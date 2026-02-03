@@ -14,7 +14,7 @@ from common.data_getter import DataGetter
 getter = DataGetter()
 codes = ['000001', '600000']
 
-'''
+print("Data source:", getter.data_source)
 res = getter.get_stock_basic_info(codes)
 print('Stock basic info: ')
 print(res)
@@ -22,7 +22,11 @@ print(res)
 res = getter.get_market_data(codes, period='1m', count=300)
 print('Market data: ')
 print(res)
+
+res = getter.get_market_data(codes, period='1d', count=300)
+print('Market data: ')
+print(res)
+
 res = getter.get_real_time_data(codes)
 print('Real time data: ')
 print(res)
-'''
