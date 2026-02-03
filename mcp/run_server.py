@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
 启动xtdata MCP服务器
 
 使用方法:
@@ -42,9 +42,9 @@ def main():
     print("-" * 50)
 
     try:
-    # 创建并启动服务器
-    server = XtDataMCPServer(args.host, args.port, args.xtdata_dir, getattr(args, 'api_key', None))
-    server.serve_forever()
+        # 创建并启动服务器
+        server = XtDataMCPServer(args.host, args.port, args.xtdata_dir, getattr(args, 'api_key', None))
+        server.serve_forever()
     except KeyboardInterrupt:
         print("\n服务器已停止")
     except Exception as e:
