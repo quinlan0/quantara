@@ -155,6 +155,16 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         """处理POST请求"""
         try:
+            # 认证检查
+            if not self._authenticate_request(dict(self.headers)):
+                self.send_response(401)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('WWW-Authenticate', 'Bearer')
+                self.end_headers()
+                error_response = {"error": "Authentication required. Please provide X-API-Key header or Authorization header."}
+                self.wfile.write(json.dumps(error_response).encode('utf-8'))
+                return
+
             # 解析请求路径
             path = urllib.parse.urlparse(self.path).path
 
@@ -178,7 +188,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, Authorization')
             self.end_headers()
 
             self.wfile.write(json.dumps(response, ensure_ascii=False, indent=2, default=str).encode('utf-8'))
@@ -337,12 +347,33 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
 class XtDataMCPServer:
     """xtdata MCP服务器"""
 
-    def __init__(self, host: str = "localhost", port: int = 8000, xtdata_dir: Optional[str] = None):
+    def __init__(self, host: str = "localhost", port: int = 8000, xtdata_dir: Optional[str] = None,
+                 api_key: Optional[str] = None):
         self.host = host
         self.port = port
         self.xtdata_service = XtDataService(xtdata_dir)
+        self.api_key = api_key
         self.server = None
         self.server_thread = None
+
+    def _authenticate_request(self, headers: Dict[str, str]) -> bool:
+        """验证请求认证"""
+        if not self.api_key:
+            # 如果没有设置API密钥，则允许所有请求
+            return True
+
+        # 检查API Key头
+        api_key_header = headers.get('X-API-Key') or headers.get('Authorization')
+        if api_key_header:
+            # 如果是Bearer token格式
+            if api_key_header.startswith('Bearer '):
+                provided_key = api_key_header[7:]  # 去掉"Bearer "前缀
+            else:
+                provided_key = api_key_header
+
+            return provided_key == self.api_key
+
+        return False
 
     def start(self):
         """启动服务器"""

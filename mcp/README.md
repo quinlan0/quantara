@@ -100,15 +100,27 @@
 ### 1. 启动服务器
 
 ```bash
-# 使用默认配置 (localhost:8000)
+# 使用默认配置 (localhost:9999，无认证)
 python mcp/run_server.py
 
 # 指定主机和端口
 python mcp/run_server.py --host 0.0.0.0 --port 8080
 
-# 指定xtdata数据目录
-python mcp/run_server.py --xtdata-dir "G:\国金证券QMT交易端\datadir"
+# 启用API密钥认证
+python mcp/run_server.py --api-key "your-secret-api-key"
+
+# 指定xtdata数据目录和认证
+python mcp/run_server.py --xtdata-dir "G:\国金证券QMT交易端\datadir" --api-key "your-secret-api-key"
 ```
+
+### 2. 认证配置
+
+服务器支持API密钥认证，提供两种认证方式：
+
+- **X-API-Key头**: `X-API-Key: your-secret-api-key`
+- **Authorization头**: `Authorization: Bearer your-secret-api-key`
+
+如果启动服务器时没有指定 `--api-key` 参数，则不启用认证，所有请求都可以访问。
 
 ### 2. 测试服务器
 
@@ -154,8 +166,11 @@ python mcp/client.py
 ```python
 from mcp.client import XtDataMCPClient
 
-# 创建客户端
-client = XtDataMCPClient("http://localhost:8000")
+# 创建客户端（无认证）
+client = XtDataMCPClient("http://localhost:9999")
+
+# 创建客户端（带认证）
+client = XtDataMCPClient("http://localhost:9999", api_key="your-secret-api-key")
 
 # 获取板块列表
 sectors = client.get_sector_list()
@@ -220,6 +235,38 @@ mcp/
 }
 ```
 
+## 安全认证
+
+服务器支持API密钥认证，确保只有授权客户端可以访问：
+
+### 认证方式
+
+1. **X-API-Key头**:
+   ```
+   X-API-Key: your-secret-api-key
+   ```
+
+2. **Authorization头** (Bearer Token):
+   ```
+   Authorization: Bearer your-secret-api-key
+   ```
+
+### 启用认证
+
+```bash
+# 启动时指定API密钥
+python mcp/run_server.py --api-key "my-secure-api-key-12345"
+
+# 客户端使用认证
+python mcp/client.py --api-key "my-secure-api-key-12345" --demo
+```
+
+### 认证检查
+
+- 如果服务器启动时未指定 `--api-key`，则不启用认证
+- 认证失败返回HTTP 401状态码
+- 支持的请求头：`X-API-Key` 或 `Authorization`
+
 ## 注意事项
 
 1. **xtdata依赖**: 未安装xtquant库时自动使用模拟模式
@@ -227,6 +274,7 @@ mcp/
 3. **并发访问**: 当前实现每个请求处理一次，不支持并发
 4. **CORS**: 服务器默认允许跨域请求
 5. **端口占用**: 确保指定端口未被其他服务占用
+6. **API密钥安全**: 在生产环境中使用强密码作为API密钥，避免硬编码在代码中
 
 ## 许可证
 

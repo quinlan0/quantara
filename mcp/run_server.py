@@ -22,6 +22,8 @@ def main():
     parser.add_argument('--xtdata-dir', type=str,
                        default=r'G:\国金证券QMT交易端\datadir',
                        help='xtdata数据目录路径')
+    parser.add_argument('--api-key', type=str,
+                       help='API密钥，用于认证。如果不提供则不启用认证')
 
     args = parser.parse_args()
 
@@ -40,9 +42,9 @@ def main():
     print("-" * 50)
 
     try:
-        # 创建并启动服务器
-        server = XtDataMCPServer(args.host, args.port, args.xtdata_dir)
-        server.serve_forever()
+    # 创建并启动服务器
+    server = XtDataMCPServer(args.host, args.port, args.xtdata_dir, getattr(args, 'api_key', None))
+    server.serve_forever()
     except KeyboardInterrupt:
         print("\n服务器已停止")
     except Exception as e:

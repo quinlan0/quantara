@@ -16,18 +16,28 @@ from typing import Any, Dict, List
 class XtDataMCPClient:
     """xtdata MCP客户端"""
 
-    def __init__(self, server_url: str = "http://localhost:9999"):
+    def __init__(self, server_url: str = "http://localhost:9999", api_key: Optional[str] = None):
         """初始化客户端
 
         Args:
             server_url: MCP服务器URL
+            api_key: API密钥，用于认证
         """
         self.server_url = server_url.rstrip('/')
+        self.api_key = api_key
         self.session = requests.Session()
-        self.session.headers.update({
+
+        # 设置基础请求头
+        headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
-        })
+        }
+
+        # 如果提供了API密钥，添加到请求头
+        if self.api_key:
+            headers['X-API-Key'] = self.api_key
+
+        self.session.headers.update(headers)
 
     def get_sector_list(self) -> List[str]:
         """获取板块列表"""
@@ -154,6 +164,8 @@ def main():
     parser.add_argument('--server-url', type=str,
                        default='http://localhost:9999',
                        help='MCP服务器URL')
+    parser.add_argument('--api-key', type=str,
+                       help='API密钥，用于认证')
     parser.add_argument('--demo', action='store_true',
                        help='运行演示模式')
 
@@ -167,7 +179,7 @@ def main():
         print("xtdata MCP客户端")
         print("输入 'help' 查看可用命令，输入 'quit' 退出")
 
-        client = XtDataMCPClient(args.server_url)
+        client = XtDataMCPClient(args.server_url, getattr(args, 'api_key', None))
 
         while True:
             try:
