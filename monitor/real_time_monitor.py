@@ -29,6 +29,7 @@ try:
     from common.logger import init_logger, logger
     from common.utils import load_data
     from common.data_getter import DataGetter
+    from monitor.real_time_sqlite import RealTimeMonitorSQLite
     print("✓ 成功导入所有模块")
 except ImportError as e:
     print(f"✗ 模块导入失败: {e}")
@@ -50,6 +51,10 @@ class RealTimeStockMonitor:
         # 数据存储
         self.all_data = {}
         self.data_getter = DataGetter()
+
+        # SQLite 存储（数据库文件与pkl在同一目录）
+        self.sqlite_db_path = self.cache_dir / "real_time_monitor.db"
+        self.sqlite_storage = RealTimeMonitorSQLite(self.sqlite_db_path)
 
         # 监控配置
         self.monitor_interval = 10  # 监控间隔（秒）
@@ -289,7 +294,11 @@ class RealTimeStockMonitor:
                 '当日最高涨跌幅': round(high_change, 2),
                 '当日最低涨跌幅': round(low_change, 2),
                 '当日成交量': current_volume_int,
-                '前五日平均量': prev_5_volumes_int
+                '前五日平均量': prev_5_volumes_int,
+                # 价格字段（用于SQLite存储）
+                '当前价格': float(current_price),
+                '当日最高价': float(high_price),
+                '当日最低价': float(low_price),
             }
 
         except Exception as e:
@@ -376,7 +385,13 @@ class RealTimeStockMonitor:
             logger.debug(f"评估监控结果失败详情: {traceback.format_exc()}")
 
     def save_real_time_data(self, indicators_data, save_csv=True):
-        """保存实时数据到本地"""
+        """
+        保存实时数据到本地
+
+        说明：
+        - 保留原有pkl/CSV方案（向后兼容），但实时监控流程默认只写入SQLite
+        - 当前RealTimeStockMonitor内部已不再调用该方法，主要用于手动导出
+        """
         try:
             if not indicators_data:
                 logger.warning("没有数据需要保存")
@@ -487,11 +502,16 @@ class RealTimeStockMonitor:
                     if indicators_data:
                         self.evaluate_monitoring_results(indicators_data)
 
-                    # 保存数据（持续监控模式不保存CSV）
+                    # 保存数据：仅写入SQLite，不再保存pkl/CSV
                     if indicators_data:
-                        saved_path = self.save_real_time_data(indicators_data, save_csv=False)
-                        if saved_path:
-                            logger.info(f"第 {iteration + 1} 次监控完成，数据已保存")
+                        try:
+                            inserted = self.sqlite_storage.insert_batch(
+                                indicators_data,
+                                ts=datetime.now(),
+                            )
+                            logger.info(f"第 {iteration + 1} 次监控完成，SQLite 已写入 {inserted} 行")
+                        except Exception as e:
+                            logger.error(f"写入SQLite失败: {e}")
 
                     # 等待下次监控
                     if iteration < total_iterations - 1:
@@ -545,12 +565,18 @@ class RealTimeStockMonitor:
             if indicators_data:
                 self.evaluate_monitoring_results(indicators_data)
 
-            # 保存数据（单次模式保存CSV）
+            # 保存数据：单次模式同样只写入SQLite
             if indicators_data:
-                saved_path = self.save_real_time_data(indicators_data, save_csv=True)
-                if saved_path:
-                    logger.info("单次监控完成，数据已保存")
-                    return saved_path
+                try:
+                    inserted = self.sqlite_storage.insert_batch(
+                        indicators_data,
+                        ts=datetime.now(),
+                    )
+                    logger.info(f"单次监控完成，SQLite 已写入 {inserted} 行")
+                    # 返回数据库路径，方便上层打印或后续使用
+                    return str(self.sqlite_db_path)
+                except Exception as e:
+                    logger.error(f"单次监控写入SQLite失败: {e}")
 
         except Exception as e:
             logger.error(f"单次监控执行失败: {e}")
