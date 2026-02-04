@@ -15,6 +15,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime, timedelta
 import logging
+from prettytable import PrettyTable
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
@@ -66,6 +67,7 @@ class RealTimeStockMonitor:
                 return False
             stock_data_dict_dp = data_dir / "stock" / "update_stock_advanced_features.pkl"
             self.all_data['stock_data_dict'] = load_data(stock_data_dict_dp)
+            '''
             stock_sectional_data_dp = data_dir / "stock" / "update_stock_sectional_data.pkl"
             self.all_data['stock_sectional_data'] = load_data(stock_sectional_data_dp)
             industry_bi_dp = data_dir / "board_infos" / "industry_board_infos.pkl"
@@ -77,6 +79,7 @@ class RealTimeStockMonitor:
             all_boards_sectional_infos_dp = data_dir / "board_infos" / "board_sectional_infos.pkl"
             self.all_data['board_sectional_infos'] = load_data(all_boards_sectional_infos_dp)
             self.all_data['all_board_infos'], self.all_data['refined_infos_dict'] = load_data(data_dir / "board_infos" / "analysis_all_board_infos_day.pkl")
+            '''
             logger.info("成功加载离线数据")
             return True
 
@@ -296,7 +299,83 @@ class RealTimeStockMonitor:
             logger.debug(f"完整错误堆栈: {traceback.format_exc()}")
             return None
 
-    def save_real_time_data(self, indicators_data):
+    def evaluate_monitoring_results(self, indicators_data):
+        """评估监控结果，用prettytable表格形式展现"""
+        try:
+            if not indicators_data:
+                return
+
+            warning_threshold = 3.0  # 涨跌幅阈值 3%
+            warnings = []
+
+            print(f"\n=== 监控结果 ({datetime.now().strftime('%H:%M:%S')}) ===")
+
+            # 创建PrettyTable
+            table = PrettyTable()
+
+            # 设置列名
+            table.field_names = ['状态', '股票代码', '当前涨跌幅', '量比', '前五日涨跌幅', '上一日涨跌幅',
+                                '当日开盘涨跌幅', '当日最高涨跌幅', '当日最低涨跌幅', '当日成交量', '前五日平均量']
+
+            # 设置表格样式
+            table.align = 'c'  # 居中对齐
+            table.border = True
+            table.header = True
+            table.header_style = 'upper'
+
+            # 添加数据行
+            for indicator in indicators_data:
+                stock_code = indicator.get('股票代码', '未知')
+                current_change = indicator.get('当前涨跌幅', 0.0)
+                volume_ratio = indicator.get('量比', 0.0)
+                prev_5_change = indicator.get('前五日涨跌幅', 0.0)
+                prev_day_change = indicator.get('上一日涨跌幅', 0.0)
+                open_change = indicator.get('当日开盘涨跌幅', 0.0)
+                high_change = indicator.get('当日最高涨跌幅', 0.0)
+                low_change = indicator.get('当日最低涨跌幅', 0.0)
+                current_volume = indicator.get('当日成交量', 0)
+                prev_5_volumes = indicator.get('前五日平均量', 0)
+
+                # 确定状态
+                status = "⚠️" if abs(current_change) >= warning_threshold else "✓"
+                if abs(current_change) >= warning_threshold:
+                    warning_msg = f"股票 {stock_code} 当前涨跌幅 {current_change:.2f}%"
+                    warnings.append(warning_msg)
+
+                # 添加行数据
+                table.add_row([
+                    status,
+                    stock_code,
+                    f"{current_change:.2f}%",
+                    f"{volume_ratio:.2f}",
+                    f"{prev_5_change:.2f}%",
+                    f"{prev_day_change:.2f}%",
+                    f"{open_change:.2f}%",
+                    f"{high_change:.2f}%",
+                    f"{low_change:.2f}%",
+                    f"{current_volume:,}",
+                    f"{prev_5_volumes:,}"
+                ])
+
+            # 打印表格
+            print(table)
+
+            print(f"\n=== 本次监控 {len(indicators_data)} 只股票，异常 {len(warnings)} 只 ===")
+
+            # 记录到日志
+            if warnings:
+                logger.warning(f"本次监控发现 {len(warnings)} 只股票出现异常涨跌幅")
+                for warning in warnings:
+                    logger.warning(warning)
+            else:
+                logger.info("本次监控未发现异常涨跌幅")
+
+        except Exception as e:
+            logger.error(f"评估监控结果失败: {e}")
+            import traceback
+            logger.debug(f"评估监控结果失败详情: {traceback.format_exc()}")
+
+    def save_real_time_data(self, indicators_data, save_csv=True):
         """保存实时数据到本地"""
         try:
             if not indicators_data:
@@ -319,7 +398,7 @@ class RealTimeStockMonitor:
             logger.info(f"数据包含 {len(df)} 只股票的实时指标")
 
             # 同时保存为CSV格式（可选，便于查看）
-            if True:
+            if save_csv:
                 csv_path = file_path.with_suffix('.csv')
                 df.to_csv(csv_path, index=False, encoding='utf-8-sig')
                 logger.info(f"CSV格式数据已保存到: {csv_path}")
@@ -330,6 +409,26 @@ class RealTimeStockMonitor:
             logger.error(f"保存实时数据失败: {e}")
             logger.debug(f"保存数据失败详情: 数据长度={len(indicators_data) if indicators_data else 0}，数据类型={type(indicators_data)}")
             return None
+
+    def is_trading_time(self):
+        """检查当前是否为A股交易时间"""
+        now = datetime.now()
+        current_time = now.time()
+
+        # A股交易时间：09:30-11:30 和 13:00-15:00
+        morning_start = datetime.strptime("09:30", "%H:%M").time()
+        morning_end = datetime.strptime("11:30", "%H:%M").time()
+        afternoon_start = datetime.strptime("13:00", "%H:%M").time()
+        afternoon_end = datetime.strptime("15:00", "%H:%M").time()
+
+        # 检查是否为工作日（周一到周五）
+        is_weekday = now.weekday() < 5  # 0-4 代表周一到周五
+
+        # 检查是否在交易时间范围内
+        is_morning_trading = morning_start <= current_time <= morning_end
+        is_afternoon_trading = afternoon_start <= current_time <= afternoon_end
+
+        return is_weekday and (is_morning_trading or is_afternoon_trading)
 
     def run_monitoring(self, duration_minutes=60, stock_codes_file=None):
         """运行监控程序"""
@@ -358,15 +457,39 @@ class RealTimeStockMonitor:
                 try:
                     logger.info(f"开始第 {iteration + 1}/{total_iterations} 次监控...")
 
+                    # 检查是否超过交易结束时间（15:10）
+                    current_time = datetime.now().time()
+                    trading_end_extended = datetime.strptime("15:10", "%H:%M").time()
+                    if current_time > trading_end_extended:
+                        logger.info(f"当前时间已超过15:10，结束今日监控")
+                        print(f"🏁 当前时间已超过15:10，结束今日监控")
+                        break
+
+                    # 检查是否为交易时间
+                    if not self.is_trading_time():
+                        current_time_str = datetime.now().strftime("%H:%M:%S")
+                        logger.info(f"当前时间 {current_time_str} 不在A股交易时间内，跳过本次监控")
+                        print(f"⏰ 当前时间 {current_time_str} 不在A股交易时间内，跳过监控")
+
+                        # 等待下次监控
+                        if iteration < total_iterations - 1:
+                            logger.info(f"等待 {self.monitor_interval} 秒后进行下次检查...")
+                            time.sleep(self.monitor_interval)
+                        continue
+
                     # 获取实时数据
                     real_time_data = self.data_getter.get_real_time_data(stock_codes)
 
                     # 计算指标
                     indicators_data = self.calculate_indicators(stock_codes, real_time_data)
 
-                    # 保存数据
+                    # 评估监控结果
                     if indicators_data:
-                        saved_path = self.save_real_time_data(indicators_data)
+                        self.evaluate_monitoring_results(indicators_data)
+
+                    # 保存数据（持续监控模式不保存CSV）
+                    if indicators_data:
+                        saved_path = self.save_real_time_data(indicators_data, save_csv=False)
                         if saved_path:
                             logger.info(f"第 {iteration + 1} 次监控完成，数据已保存")
 
@@ -389,10 +512,17 @@ class RealTimeStockMonitor:
             import traceback
             logger.debug(f"监控程序异常退出详情: {traceback.format_exc()}")
 
-    def run_once(self, stock_codes_file=None):
+    def run_once(self, stock_codes_file=None, check_trading_time=True):
         """执行一次监控"""
         try:
             logger.info("执行单次实时股票监控...")
+
+            # 检查是否为交易时间（可选择性检查）
+            if check_trading_time and not self.is_trading_time():
+                current_time = datetime.now().strftime("%H:%M:%S")
+                logger.warning(f"当前时间 {current_time} 不在A股交易时间内，无法执行监控")
+                print(f"⏰ 当前时间 {current_time} 不在A股交易时间内，无法执行监控")
+                return None
 
             # 加载离线数据
             if not self.load_offline_data():
@@ -411,9 +541,13 @@ class RealTimeStockMonitor:
             # 计算指标
             indicators_data = self.calculate_indicators(stock_codes, real_time_data)
 
-            # 保存数据
+            # 评估监控结果
             if indicators_data:
-                saved_path = self.save_real_time_data(indicators_data)
+                self.evaluate_monitoring_results(indicators_data)
+
+            # 保存数据（单次模式保存CSV）
+            if indicators_data:
+                saved_path = self.save_real_time_data(indicators_data, save_csv=True)
                 if saved_path:
                     logger.info("单次监控完成，数据已保存")
                     return saved_path
@@ -430,12 +564,12 @@ def main():
     """主函数"""
     import argparse
 
-    parser = argparse.ArgumentParser(description='实时股票监控程序')
+    parser = argparse.ArgumentParser(description='realtime_monitor')
     parser.add_argument('--duration', type=int, default=120,
-                       help='监控时长（分钟），默认60分钟')
+            help='监控时长（分钟），默认120分钟')
     parser.add_argument('--once', action='store_true',
                        help='只执行一次监控而不是持续监控')
-    parser.add_argument('--stock-codes-file', type=str,
+    parser.add_argument('--stock-codes-file', type=str, default="/tmp/candidates/test.txt",
                        help='股票代码文件路径，每行一个股票代码')
 
     args = parser.parse_args()
@@ -447,14 +581,14 @@ def main():
     stock_codes_file = getattr(args, 'stock_codes_file', None)
 
     if args.once:
-        # 执行单次监控
-        result = monitor.run_once(stock_codes_file)
+        # 执行单次监控（不检查交易时间）
+        result = monitor.run_once(stock_codes_file, check_trading_time=False)
         if result:
             print(f"单次监控完成，数据保存至: {result}")
         else:
             print("单次监控失败")
     else:
-        # 执行持续监控
+        # 执行持续监控（检查交易时间，不保存CSV）
         monitor.run_monitoring(args.duration, stock_codes_file)
 
 
