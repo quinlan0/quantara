@@ -310,6 +310,21 @@ class XtTradeService:
             return {"error": "交易器初始化失败"}
 
         try:
+            # 委托状态码映射
+            order_status_map = {
+                48: "未报",      # xtconstant.ORDER_UNREPORTED
+                49: "待报",      # xtconstant.ORDER_WAIT_REPORTING
+                50: "已报",      # xtconstant.ORDER_REPORTED
+                51: "已报待撤",    # xtconstant.ORDER_REPORTED_CANCEL
+                52: "部成待撤",    # xtconstant.ORDER_PARTSUCC_CANCEL
+                53: "部撤",      # xtconstant.ORDER_PART_CANCEL
+                54: "已撤",      # xtconstant.ORDER_CANCELED
+                55: "部成",      # xtconstant.ORDER_PART_SUCC
+                56: "已成",      # xtconstant.ORDER_SUCCEEDED
+                57: "废单",      # xtconstant.ORDER_JUNK
+                255: "未知"      # xtconstant.ORDER_UNKNOWN
+            }
+
             # 查询委托
             orders = self.trader.query_stock_orders(self.account, cancelable_only=False)
             if orders is None:
@@ -342,7 +357,8 @@ class XtTradeService:
                     'price': order.price,
                     'traded_volume': order.traded_volume,
                     'traded_price': order.traded_price,
-                    'order_status': order.order_status,
+                    'order_status': order_status_map.get(order.order_status, f"未知状态({order.order_status})"),
+                    'order_status_code': order.order_status,  # 保留原始状态码以备不时之需
                     'status_msg': order.status_msg,
                     'strategy_name': order.strategy_name,
                     'order_remark': order.order_remark,
