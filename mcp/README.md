@@ -6,6 +6,7 @@
 
 - 🚀 **REST API**: 使用HTTP REST API进行通信
 - 📊 **xtdata封装**: 封装xtdata库的核心接口
+- 💰 **交易功能**: 支持实时交易操作（限价单、市价单、撤单等）
 - 🔄 **JSON通信**: 基于JSON的请求/响应格式
 - 🧪 **模拟模式**: 在没有xtdata的环境下提供模拟数据
 - 🌐 **CORS支持**: 支持跨域请求
@@ -95,23 +96,111 @@
 
 **返回值**: `Dict[str, Any]` - 市场数据字典
 
+### 交易工具接口（需要启用 --enable-trade）
+
+#### 1. get_account_positions
+查看指定账户的持仓情况
+
+**参数**: 无
+
+**返回值**: `Dict[str, Any]` - 账户持仓信息
+```json
+{
+  "account_id": "8887181228",
+  "cash": 100000.0,
+  "frozen_cash": 0.0,
+  "market_value": 150000.0,
+  "total_asset": 250000.0,
+  "positions": [...],
+  "positions_count": 5
+}
+```
+
+#### 2. place_order
+尝试挂单（限价单和市价单）
+
+**参数**:
+- `code` (str): 股票代码，如 '000001' 或 '000001.SH'
+- `order_type` (str): 委托类型，'buy' 或 'sell'
+- `volume` (int): 委托数量
+- `price` (float, 可选): 委托价格（限价单必填）
+- `price_type` (str, 可选): 报价类型，'limit' 或 'market'，默认'limit'
+
+**返回值**: `Dict[str, Any]` - 挂单结果
+```json
+{
+  "order_id": 123456,
+  "code": "000001",
+  "order_type": "buy",
+  "volume": 1000,
+  "price": 10.5,
+  "price_type": "limit",
+  "status": "submitted"
+}
+```
+
+#### 3. query_orders
+查询挂单成交情况
+
+**参数**:
+- `strategy_name` (str, 可选): 策略名称过滤
+- `order_type` (str, 可选): 订单类型过滤，'buy' 或 'sell'
+- `status_list` (List[str], 可选): 状态列表过滤
+
+**返回值**: `Dict[str, Any]` - 订单查询结果
+```json
+{
+  "orders": [...],
+  "trades": [...],
+  "orders_count": 5,
+  "trades_count": 3
+}
+```
+
+#### 4. cancel_order
+撤单
+
+**参数**:
+- `order_id` (int): 订单ID
+
+**返回值**: `Dict[str, Any]` - 撤单结果
+
 ## 快速开始
 
 ### 1. 启动服务器
 
 ```bash
-# 使用默认配置 (localhost:9999，无认证)
+# 数据查询模式（默认）
 python mcp/run_server.py
 
-# 指定主机和端口
-python mcp/run_server.py --host 0.0.0.0 --port 8080
+# 启用交易功能（推荐用于生产环境）
+python mcp/run_server.py --enable-trade \
+  --trader-path "G:\国金证券QMT交易端\userdata_mini" \
+  --account-id "8887181228"
 
-# 启用API密钥认证
-python mcp/run_server.py --api-key "your-secret-api-key"
-
-# 指定xtdata数据目录和认证
-python mcp/run_server.py --xtdata-dir "G:\国金证券QMT交易端\datadir" --api-key "your-secret-api-key"
+# 完整配置（带认证）
+python mcp/run_server.py \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --enable-trade \
+  --xtdata-dir "G:\国金证券QMT交易端\datadir" \
+  --trader-path "G:\国金证券QMT交易端\userdata_mini" \
+  --account-id "8887181228" \
+  --api-key "your-secret-api-key"
 ```
+
+#### 交易功能参数说明
+
+- `--enable-trade`: 启用交易功能
+- `--trader-path`: 交易器数据目录路径（QMT的用户数据目录）
+- `--account-id`: 交易账户ID
+- `--session-id`: 交易会话ID（避免与其他策略冲突）
+
+**⚠️ 安全提醒**: 启用交易功能时，请确保：
+1. QMT交易终端正在运行
+2. 账户资金充足
+3. 网络连接稳定
+4. 仅在测试环境验证功能
 
 ### 2. 认证配置
 
@@ -128,6 +217,7 @@ python mcp/run_server.py --xtdata-dir "G:\国金证券QMT交易端\datadir" --ap
 # 列出可用工具
 curl -X POST http://localhost:8000/tools/list
 
+# 数据查询接口
 # 获取板块列表
 curl -X POST http://localhost:8000/tools/call \
   -H "Content-Type: application/json" \
@@ -137,6 +227,31 @@ curl -X POST http://localhost:8000/tools/call \
 curl -X POST http://localhost:8000/tools/call \
   -H "Content-Type: application/json" \
   -d '{"name": "get_full_tick", "arguments": {"code_list": ["000001.SZ", "600000.SH"]}}'
+
+# 交易接口（需要启用--enable-trade）
+# 查看持仓
+curl -X POST http://localhost:8000/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{"name": "get_account_positions", "arguments": {}}'
+
+# 挂限价单（⚠️ 请谨慎使用）
+curl -X POST http://localhost:8000/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "place_order",
+    "arguments": {
+      "code": "000001",
+      "order_type": "buy",
+      "volume": 100,
+      "price": 10.50,
+      "price_type": "limit"
+    }
+  }'
+
+# 查询订单
+curl -X POST http://localhost:8000/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{"name": "query_orders", "arguments": {}}'
 ```
 
 ### 3. 运行客户端演示
@@ -313,6 +428,30 @@ api_key = get_api_key()
 4. **CORS**: 服务器默认允许跨域请求
 5. **端口占用**: 确保指定端口未被其他服务占用
 6. **API密钥安全**: 在生产环境中使用强密码作为API密钥，避免硬编码在代码中
+
+### 交易功能特别提醒
+
+1. **风险警告**: 交易功能涉及真实资金操作，请谨慎使用
+2. **环境要求**: 启用交易功能需要QMT交易终端正在运行
+3. **账户安全**: 确保交易账户有足够资金，避免过度交易
+4. **网络稳定**: 交易期间保持网络连接稳定，避免网络波动导致的交易失败
+5. **测试环境**: 建议先在模拟环境测试所有功能
+6. **权限控制**: 交易功能需要严格的API密钥认证
+7. **日志记录**: 所有交易操作都会记录日志，便于追踪和审计
+
+### 交易状态码说明
+
+委托状态 (order_status):
+- 48: 未报
+- 50: 已报
+- 55: 部成
+- 56: 已成
+- 54: 已撤
+- 57: 废单
+
+报价类型 (price_type):
+- `xtconstant.FIX_PRICE`: 限价
+- `xtconstant.LATEST_PRICE`: 最新价（市价）
 
 ## 许可证
 

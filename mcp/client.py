@@ -105,6 +105,69 @@ class XtDataMCPClient:
         })
         return self._parse_response(response)
 
+    def get_account_positions(self) -> Dict[str, Any]:
+        """查看账户持仓情况"""
+        print("调用 get_account_positions...")
+        response = self.session.post(f"{self.server_url}/tools/call", json={
+            "name": "get_account_positions",
+            "arguments": {}
+        })
+        return self._parse_response(response)
+
+    def place_order(self, code: str, order_type: str, volume: int,
+                   price: Optional[float] = None, price_type: str = "limit") -> Dict[str, Any]:
+        """挂单
+
+        Args:
+            code: 股票代码，如 '000001' 或 '000001.SH'
+            order_type: 委托类型，'buy' 或 'sell'
+            volume: 委托数量
+            price: 委托价格（限价单必填）
+            price_type: 报价类型，'limit' 或 'market'
+        """
+        print(f"调用 place_order: {code}, {order_type}, 数量={volume}, 价格={price}, 类型={price_type}")
+        response = self.session.post(f"{self.server_url}/tools/call", json={
+            "name": "place_order",
+            "arguments": {
+                "code": code,
+                "order_type": order_type,
+                "volume": volume,
+                "price": price,
+                "price_type": price_type
+            }
+        })
+        return self._parse_response(response)
+
+    def query_orders(self, strategy_name: Optional[str] = None,
+                    order_type: Optional[str] = None,
+                    status_list: Optional[List[str]] = None) -> Dict[str, Any]:
+        """查询订单成交情况"""
+        print("调用 query_orders...")
+        args = {}
+        if strategy_name:
+            args["strategy_name"] = strategy_name
+        if order_type:
+            args["order_type"] = order_type
+        if status_list:
+            args["status_list"] = status_list
+
+        response = self.session.post(f"{self.server_url}/tools/call", json={
+            "name": "query_orders",
+            "arguments": args
+        })
+        return self._parse_response(response)
+
+    def cancel_order(self, order_id: int) -> Dict[str, Any]:
+        """撤单"""
+        print(f"调用 cancel_order: {order_id}")
+        response = self.session.post(f"{self.server_url}/tools/call", json={
+            "name": "cancel_order",
+            "arguments": {
+                "order_id": order_id
+            }
+        })
+        return self._parse_response(response)
+
     def list_tools(self) -> Dict[str, Any]:
         """列出可用工具"""
         print(f"连接到服务器: {self.server_url}")
@@ -219,6 +282,39 @@ def demo():
         market_data = client.get_market_data_ex(["000001.SZ"], period="1d", count=3)
         print(f"   获取到 {len(market_data) if market_data else 0} 只股票的市场数据\n")
 
+        # 检查是否启用了交易功能
+        tools_info = client.list_tools()
+        has_trading = any(tool.get('name', '').startswith(('get_account_positions', 'place_order', 'query_orders', 'cancel_order'))
+                        for tool in tools_info.get('tools', []))
+
+        if has_trading:
+            print("=== 交易功能演示 ===")
+            print("\n⚠️  注意: 以下是交易功能演示，请谨慎使用！")
+
+            print("5. 查看账户持仓:")
+            positions = client.get_account_positions()
+            if positions and "error" not in positions:
+                print(f"   账户ID: {positions.get('account_id')}")
+                print(f"   可用资金: {positions.get('cash', 0):.2f}")
+                print(f"   持仓数量: {positions.get('positions_count', 0)}")
+            else:
+                print("   无法获取持仓信息或交易功能未启用\n")
+
+            print("6. 查询订单:")
+            orders = client.query_orders()
+            if orders and "error" not in orders:
+                print(f"   委托数量: {orders.get('orders_count', 0)}")
+                print(f"   成交数量: {orders.get('trades_count', 0)}")
+            else:
+                print("   无法获取订单信息或交易功能未启用\n")
+
+            print("💡 交易功能提示:")
+            print("   - place_order: 挂单（限价/市价）")
+            print("   - cancel_order: 撤单")
+            print("   - 所有交易操作都会产生真实资金变动！")
+        else:
+            print("交易功能未启用，如需测试交易功能请使用 --enable-trade 参数启动服务器")
+
         print("=== 演示完成 ===")
 
     except Exception as e:
@@ -271,12 +367,23 @@ def main():
                     break
                 elif cmd == 'help':
                     print("""
-可用命令:
+数据查询命令:
   sectors                    - 获取板块列表
   stocks <sector_name>       - 获取板块成份股
   tick <codes>               - 获取tick数据，如: tick 000001.SZ,600000.SH
   market <codes> [period]    - 获取市场数据，如: market 000001.SZ 1d
   tools                      - 列出可用工具
+
+交易命令 (需要服务器启用交易功能):
+  positions                  - 查看账户持仓
+  buy CODE VOLUME [PRICE]    - 买入委托，如: buy 000001 100 10.5 (限价) 或 buy 000001 100 (市价)
+  sell CODE VOLUME [PRICE]   - 卖出委托，如: sell 000001 100 10.5 (限价) 或 sell 000001 100 (市价)
+  orders                     - 查询委托和成交记录
+  cancel ORDER_ID            - 撤单，如: cancel 123456
+
+⚠️  交易命令会产生真实资金变动，请谨慎使用！
+
+其他命令:
   quit                       - 退出
                         """)
                 elif cmd == 'sectors':
@@ -298,6 +405,44 @@ def main():
                     code_list = [code.strip() for code in codes_str.split(',')]
                     result = client.get_market_data_ex(code_list, period)
                     print(f"市场数据: {json.dumps(result, indent=2, ensure_ascii=False)}")
+                elif cmd == 'positions':
+                    result = client.get_account_positions()
+                    print(f"账户持仓: {json.dumps(result, indent=2, ensure_ascii=False)}")
+                elif cmd.startswith('buy '):
+                    # 格式: buy CODE VOLUME [PRICE]
+                    parts = cmd[4:].strip().split()
+                    if len(parts) < 2:
+                        print("用法: buy CODE VOLUME [PRICE]")
+                        continue
+                    code = parts[0]
+                    volume = int(parts[1])
+                    price = float(parts[2]) if len(parts) > 2 else None
+                    price_type = "limit" if price else "market"
+                    result = client.place_order(code, "buy", volume, price, price_type)
+                    print(f"买入委托: {json.dumps(result, indent=2, ensure_ascii=False)}")
+                elif cmd.startswith('sell '):
+                    # 格式: sell CODE VOLUME [PRICE]
+                    parts = cmd[5:].strip().split()
+                    if len(parts) < 2:
+                        print("用法: sell CODE VOLUME [PRICE]")
+                        continue
+                    code = parts[0]
+                    volume = int(parts[1])
+                    price = float(parts[2]) if len(parts) > 2 else None
+                    price_type = "limit" if price else "market"
+                    result = client.place_order(code, "sell", volume, price, price_type)
+                    print(f"卖出委托: {json.dumps(result, indent=2, ensure_ascii=False)}")
+                elif cmd == 'orders':
+                    result = client.query_orders()
+                    print(f"订单查询: {json.dumps(result, indent=2, ensure_ascii=False)}")
+                elif cmd.startswith('cancel '):
+                    # 格式: cancel ORDER_ID
+                    try:
+                        order_id = int(cmd[7:].strip())
+                        result = client.cancel_order(order_id)
+                        print(f"撤单结果: {json.dumps(result, indent=2, ensure_ascii=False)}")
+                    except ValueError:
+                        print("用法: cancel ORDER_ID (ORDER_ID必须是数字)")
                 elif cmd == 'tools':
                     result = client.list_tools()
                     print(f"可用工具: {json.dumps(result, indent=2, ensure_ascii=False)}")
