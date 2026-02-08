@@ -155,7 +155,9 @@ class XtTradeService:
 
             # 创建交易器
             self.trader = XtQuantTrader(self.trader_path, self.session_id)
-            self.account = StockAccount(self.account_id)
+            account_type = 'STOCK' if self.account_id.startswith('8') else 'CREDIT'
+
+            self.account = StockAccount(self.account_id, account_type)
             self.callback = TraderCallback()
 
             # 注册回调
@@ -587,14 +589,9 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
                 }
             }
         ]
-        print("WGF")
-        print(self.xtdata_service)
-        print(hasattr(self, 'trade_service'))
-        print(self.trade_service is not None)
 
         # 如果启用了交易功能，添加交易相关的工具
         if self.xtdata_service and hasattr(self, 'trade_service') and self.trade_service is not None:
-            print("GOD")
             trade_tools = [
                 {
                     "name": "get_account_positions",
@@ -844,7 +841,7 @@ def main():
                        help='交易器数据目录路径')
     parser.add_argument('--session-id', type=int, default=123456,
                        help='交易会话ID')
-    parser.add_argument('--account-id', type=str, default='8887181228',
+    parser.add_argument('--account-id', type=str, default='18887181228',
                        help='交易账户ID')
     parser.add_argument('--api-key', type=str,
                        help='API密钥，用于认证')
