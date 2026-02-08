@@ -412,8 +412,9 @@ class XtTradeService:
 class MCPRequestHandler(BaseHTTPRequestHandler):
     """MCP HTTP请求处理器"""
 
-    def __init__(self, *args, xtdata_service=None, api_key=None, **kwargs):
+    def __init__(self, *args, xtdata_service=None, trade_service=None, api_key=None, **kwargs):
         self.xtdata_service = xtdata_service
+        self.trade_service = trade_service
         self.api_key = api_key
         super().__init__(*args, **kwargs)
 
@@ -586,9 +587,14 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
                 }
             }
         ]
+        print("WGF")
+        print(self.xtdata_service)
+        print(hasattr(self, 'trade_service'))
+        print(self.trade_service is not None)
 
         # 如果启用了交易功能，添加交易相关的工具
         if self.xtdata_service and hasattr(self, 'trade_service') and self.trade_service is not None:
+            print("GOD")
             trade_tools = [
                 {
                     "name": "get_account_positions",
@@ -775,7 +781,7 @@ class XtDataMCPServer:
     def start(self):
         """启动服务器"""
         def create_handler(*args, **kwargs):
-            return MCPRequestHandler(*args, xtdata_service=self.xtdata_service, api_key=self.api_key, **kwargs)
+            return MCPRequestHandler(*args, xtdata_service=self.xtdata_service, trade_service=self.trade_service, api_key=self.api_key, **kwargs)
 
         self.server = HTTPServer((self.host, self.port), create_handler)
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
